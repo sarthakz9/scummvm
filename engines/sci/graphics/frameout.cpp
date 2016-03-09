@@ -133,8 +133,9 @@ GfxFrameout::GfxFrameout(SegManager *segMan, ResourceManager *resMan, GfxCoordAd
 }
 
 GfxFrameout::~GfxFrameout() {
-	CelObj::deinit();
 	clear();
+	CelObj::deinit();
+	free(_currentBuffer.getPixels());
 }
 
 void GfxFrameout::run() {
@@ -286,7 +287,7 @@ void GfxFrameout::kernelUpdateScreenItem(const reg_t object) {
 
 		screenItem->update(object);
 	} else {
-		warning("TODO: Magnifier view not implemented yet!");
+		error("Magnifier view is not known to be used by any game. Please submit a bug report with details about the game you were playing and what you were doing that triggered this error. Thanks!");
 	}
 }
 
@@ -362,6 +363,21 @@ void GfxFrameout::kernelDeletePlane(const reg_t object) {
 //		debug("Deleting plane %04x:%04x", PRINT_REG(object));
 		plane->_created = 0;
 		plane->_deleted = g_sci->_gfxFrameout->getScreenCount();
+	}
+}
+
+void GfxFrameout::deletePlane(Plane &planeToFind) {
+	Plane *plane = _planes.findByObject(planeToFind._object);
+	if (plane == nullptr) {
+		error("Invalid plane passed to deletePlane");
+	}
+
+	if (plane->_created) {
+		_planes.erase(plane);
+	} else {
+		plane->_created = 0;
+		plane->_moved = 0;
+		plane->_deleted = getScreenCount();
 	}
 }
 
@@ -765,7 +781,7 @@ void GfxFrameout::drawScreenItemList(const DrawList &screenItemList) {
 		mergeToShowList(drawItem.rect, _showList, _overdrawThreshold);
 		ScreenItem &screenItem = *drawItem.screenItem;
 		// TODO: Remove
-//		debug("Drawing item %04x:%04x to %d %d %d %d", PRINT_REG(screenItem._object), drawItem.rect.left, drawItem.rect.top, drawItem.rect.right, drawItem.rect.bottom);
+//		debug("Drawing item %04x:%04x to %d %d %d %d", PRINT_REG(screenItem._object), PRINT_RECT(drawItem.rect));
 		CelObj &celObj = *screenItem._celObj;
 		celObj.draw(_currentBuffer, screenItem, drawItem.rect, screenItem._mirrorX ^ celObj._mirrorX);
 	}
@@ -1010,8 +1026,6 @@ void GfxFrameout::alterVmap(const Palette &palette1, const Palette &palette2, co
 	// NOTE: This is currBuffer->ptr in SCI engine
 	byte *pixels = (byte *)_currentBuffer.getPixels();
 
-	// TODO: Guessing that display width/height is the correct
-	// equivalent to screen width/height in SCI engine
 	for (int pixelIndex = 0, numPixels = _currentBuffer.screenWidth * _currentBuffer.screenHeight; pixelIndex < numPixels; ++pixelIndex) {
 		byte currentValue = pixels[pixelIndex];
 		int8 styleRangeValue = styleRanges[currentValue];
@@ -1963,73 +1977,55 @@ void GfxFrameout::kernelFrameOut(const bool shouldShowBits) {
 	}
 }
 
-uint16 GfxFrameout::kernelIsOnMe(int16 x, int16 y, uint16 checkPixels, reg_t screenObject) {
-	reg_t planeObject = readSelector(_segMan, screenObject, SELECTOR(plane));
-	Plane *screenItemPlane = _visiblePlanes.findByObject(planeObject); // Search for plane in visible planes
-	ScreenItem *screenItem = nullptr;
+#pragma mark -
+#pragma mark Mouse cursor
 
-	if (!screenItemPlane) {
-		// Specified plane not found
-		return 0;
+reg_t GfxFrameout::kernelIsOnMe(const reg_t object, const Common::Point &position, bool checkPixel) const {
+	reg_t planeObject = readSelector(_segMan, object, SELECTOR(plane));
+	Plane *plane = _visiblePlanes.findByObject(planeObject);
+	if (plane == nullptr) {
+		return make_reg(0, 0);
 	}
 
-	screenItem = screenItemPlane->_screenItemList.findByObject(screenObject);
-	if (!screenItem) {
-		// Specified screen object not in item list
-		return 0;
+	ScreenItem *screenItem = plane->_screenItemList.findByObject(object);
+	if (screenItem == nullptr) {
+		return make_reg(0, 0);
 	}
 
-	// Original SCI32 seems to have made a copy (?) of the screenitem?
-	// there is also a "or [ebp+arg_56], 1 - not sure what that did
-	return isOnMe(screenItemPlane, screenItem, x, y, checkPixels);
+	return make_reg(0, isOnMe(*screenItem, *plane, position, checkPixel));
 }
 
-uint16 GfxFrameout::isOnMe(Plane *screenItemPlane, ScreenItem *screenItem, int16 x, int16 y, uint16 checkPixels) {
-	// adjust coordinate according to resolution 
-	int32 adjustedX = x * getCurrentBuffer().screenWidth / getCurrentBuffer().scriptWidth;
-	int32 adjustedY = y * getCurrentBuffer().screenHeight / getCurrentBuffer().scriptHeight;
+bool GfxFrameout::isOnMe(const ScreenItem &screenItem, const Plane &plane, const Common::Point &position, const bool checkPixel) const {
 
-	adjustedX += screenItemPlane->_planeRect.left;
-	adjustedY += screenItemPlane->_planeRect.top;
+	Common::Point scaledPosition(position);
+	mulru(scaledPosition, Ratio(_currentBuffer.screenWidth, _currentBuffer.scriptWidth), Ratio(_currentBuffer.screenHeight, _currentBuffer.scriptHeight));
+	scaledPosition.x += plane._planeRect.left;
+	scaledPosition.y += plane._planeRect.top;
 
-	//warning("kIsOnMe %s %d (%d, %d -> %d, %d) mouse %d, %d", _segMan->getObjectName(screenObject), checkPixels, screenItem->_screenRect.left, screenItem->_screenRect.top, screenItem->_screenRect.right, screenItem->_screenRect.bottom, adjustedX, adjustedY);
-
-	if (!screenItem->_screenRect.contains(adjustedX, adjustedY)) {
-		// Specified coordinates are not within screen item
-		return 0;
+	if (!screenItem._screenRect.contains(scaledPosition)) {
+		return false;
 	}
 
-	//warning("HIT!");
-	if (checkPixels) {
-		//warning("Check Pixels");
-		CelObj &screenItemCelObject = screenItem->getCelObj();
+	if (checkPixel) {
+		CelObj &celObj = screenItem.getCelObj();
 
-		Common::Point celAdjustedPoint(adjustedX, adjustedY);
-		bool  celMirrored = screenItem->_mirrorX ^ screenItemCelObject._mirrorX;
+		bool mirrorX = screenItem._mirrorX ^ celObj._mirrorX;
 
-		celAdjustedPoint.x -= screenItem->_scaledPosition.x;
-		celAdjustedPoint.y -= screenItem->_scaledPosition.y;
+		scaledPosition.x -= screenItem._scaledPosition.x;
+		scaledPosition.y -= screenItem._scaledPosition.y;
 
-		Ratio celAdjustXRatio(screenItemCelObject._scaledWidth, getCurrentBuffer().screenWidth);
-		Ratio celAdjustYRatio(screenItemCelObject._scaledHeight, getCurrentBuffer().screenHeight);
-		mulru(celAdjustedPoint, celAdjustXRatio, celAdjustYRatio);
+		mulru(scaledPosition, Ratio(celObj._scaledWidth, _currentBuffer.screenWidth), Ratio(celObj._scaledHeight, _currentBuffer.screenHeight));
 
-		if ((screenItem->_scale.signal) && (screenItem->_scale.x) && (screenItem->_scale.y)) {
-			// Apply scaling
-			celAdjustedPoint.x = celAdjustedPoint.x * 128 / screenItem->_scale.x;
-			celAdjustedPoint.y = celAdjustedPoint.y * 128 / screenItem->_scale.y;
+		if (screenItem._scale.signal != kScaleSignalNone && screenItem._scale.x && screenItem._scale.y) {
+			scaledPosition.x = scaledPosition.x * 128 / screenItem._scale.x;
+			scaledPosition.y = scaledPosition.y * 128 / screenItem._scale.y;
 		}
 
-		byte coordinateColor = screenItemCelObject.readPixel(celAdjustedPoint.x, celAdjustedPoint.y, celMirrored);
-		byte transparentColor = screenItemCelObject._transparentColor;
-
-		if (coordinateColor == transparentColor) {
-			// Coordinate is transparent
-			//warning("TRANSPARENT!");
-			return 0;
-		}
+		uint8 pixel = celObj.readPixel(scaledPosition.x, scaledPosition.y, mirrorX);
+		return pixel != celObj._transparentColor;
 	}
-	return 1;
+
+	return true;
 }
 
 #pragma mark -
@@ -2050,6 +2046,15 @@ void GfxFrameout::printVisiblePlaneList(Console *con) const {
 	printPlaneListInternal(con, _visiblePlanes);
 }
 
+void GfxFrameout::printPlaneItemListInternal(Console *con, const ScreenItemList &screenItemList) const {
+	ScreenItemList::size_type i = 0;
+	for (ScreenItemList::const_iterator sit = screenItemList.begin(); sit != screenItemList.end(); sit++) {
+		ScreenItem *screenItem = *sit;
+		con->debugPrintf("%2d: ", i++);
+		screenItem->printDebugInfo(con);
+	}
+}
+
 void GfxFrameout::printPlaneItemList(Console *con, const reg_t planeObject) const {
 	Plane *p = _planes.findByObject(planeObject);
 
@@ -2058,12 +2063,18 @@ void GfxFrameout::printPlaneItemList(Console *con, const reg_t planeObject) cons
 		return;
 	}
 
-	ScreenItemList::size_type i = 0;
-	for (ScreenItemList::iterator sit = p->_screenItemList.begin(); sit != p->_screenItemList.end(); sit++) {
-		ScreenItem *screenItem = *sit;
-		con->debugPrintf("%2d: ", i++);
-		screenItem->printDebugInfo(con);
+	printPlaneItemListInternal(con, p->_screenItemList);
+}
+
+void GfxFrameout::printVisiblePlaneItemList(Console *con, const reg_t planeObject) const {
+	Plane *p = _visiblePlanes.findByObject(planeObject);
+
+	if (p == nullptr) {
+		con->debugPrintf("Plane does not exist");
+		return;
 	}
+
+	printPlaneItemListInternal(con, p->_screenItemList);
 }
 
 } // End of namespace Sci

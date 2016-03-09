@@ -52,6 +52,7 @@ Myst::Myst(MohawkEngine_Myst *vm) :
 	_cabinDoorOpened = 0;
 	_cabinHandleDown = 0;
 	_cabinMatchState = 2;
+	_cabinGaugeMovieEnabled = false;
 	_matchBurning = false;
 	_tree = nullptr;
 	_treeAlcove = nullptr;
@@ -2142,7 +2143,7 @@ void Myst::tree_run() {
 				// Check if alcove is accessible
 				treeSetAlcoveAccessible();
 
-				if (_cabinGaugeMovie) {
+				if (_cabinGaugeMovieEnabled) {
 					Common::Rational rate = boilerComputeGaugeRate(pressure, delay);
 					boilerResetGauge(rate);
 				}
@@ -2313,7 +2314,7 @@ void Myst::o_rocketPianoStart(uint16 op, uint16 var, uint16 argc, uint16 *argv) 
 	dest.bottom = 332 - rect.top;
 
 	// Draw pressed piano key
-	_vm->_gfx->copyImageSectionToScreen(key->getSubImage(0).wdib, src, dest);
+	_vm->_gfx->copyImageSectionToScreen(key->getSubImage(1).wdib, src, dest);
 	_vm->_system->updateScreen();
 
 	// Play note
@@ -3703,6 +3704,8 @@ void Myst::boilerGaugeInit() {
 		frame = Audio::Timestamp(0, 0, 600);
 
 	_vm->_video->drawVideoFrame(_cabinGaugeMovie, frame);
+
+	_cabinGaugeMovieEnabled = true;
 }
 
 void Myst::o_rocketSliders_init(uint16 op, uint16 var, uint16 argc, uint16 *argv) {
@@ -3842,6 +3845,8 @@ void Myst::o_boiler_exit(uint16 op, uint16 var, uint16 argc, uint16 *argv) {
 
 	_cabinGaugeMovie = VideoHandle();
 	_cabinFireMovie = VideoHandle();
+
+	_cabinGaugeMovieEnabled = false;
 }
 
 void Myst::o_generatorControlRoom_exit(uint16 op, uint16 var, uint16 argc, uint16 *argv) {

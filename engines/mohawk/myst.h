@@ -192,11 +192,11 @@ public:
 	MystSoundBlock readSoundBlock(Common::ReadStream *stream) const;
 	void applySoundBlock(const MystSoundBlock &block);
 
-	bool _tweaksEnabled;
 	bool _needsUpdate;
 	bool _needsPageDrop;
 	bool _needsShowMap;
 	bool _needsShowDemoMenu;
+	bool _needsShowCredits;
 
 	bool _showResourceRects;
 

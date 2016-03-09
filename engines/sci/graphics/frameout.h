@@ -259,6 +259,13 @@ private:
 	PlaneList _planes;
 
 	/**
+	 * Updates an existing plane with properties from the
+	 * given VM object.
+	 */
+	void updatePlane(Plane &plane);
+
+public:
+	/**
 	 * Creates and adds a new plane to the plane list, or
 	 * cancels deletion and updates an already-existing
 	 * plane if a plane matching the given plane VM object
@@ -270,14 +277,18 @@ private:
 	void addPlane(Plane &plane);
 
 	/**
-	 * Updates an existing plane with properties from the
-	 * given VM object.
+	 * Deletes a plane within the current plane list.
+	 *
+	 * @note This method is on Screen in SCI engine, but it
+	 * is only ever called on `GraphicsMgr.screen`.
 	 */
-	void updatePlane(Plane &plane);
+	void deletePlane(Plane &plane);
 
-public:
 	const PlaneList &getPlanes() const {
 		return _planes;
+	}
+	const PlaneList &getVisiblePlanes() const {
+		return _visiblePlanes;
 	}
 	void kernelAddPlane(const reg_t object);
 	void kernelUpdatePlane(const reg_t object);
@@ -423,13 +434,6 @@ private:
 	void drawScreenItemList(const DrawList &screenItemList);
 
 	/**
-	 * Updates the internal screen buffer for the next
-	 * frame. If `shouldShowBits` is true, also sends the
-	 * buffer to hardware.
-	 */
-	void frameOut(const bool shouldShowBits, const Common::Rect &rect = Common::Rect());
-
-	/**
 	 * Adds a new rectangle to the list of regions to write
 	 * out to the hardware. The provided rect may be merged
 	 * into an existing rectangle to reduce the number of
@@ -469,6 +473,13 @@ public:
 	void kernelFrameOut(const bool showBits);
 
 	/**
+	 * Updates the internal screen buffer for the next
+	 * frame. If `shouldShowBits` is true, also sends the
+	 * buffer to hardware.
+	 */
+	void frameOut(const bool shouldShowBits, const Common::Rect &rect = Common::Rect());
+
+	/**
 	 * Modifies the raw pixel data for the next frame with
 	 * new palette indexes based on matched style ranges.
 	 */
@@ -491,8 +502,17 @@ public:
 		return 1;
 	};
 
-	uint16 kernelIsOnMe(int16 x, int16 y, uint16 checkPixels, reg_t screenObject);
-	uint16 isOnMe(Plane *screenItemPlane, ScreenItem *screenItem, int16 x, int16 y, uint16 checkPixels);
+#pragma mark -
+#pragma mark Mouse cursor
+private:
+	/**
+	 * Determines whether or not the point given by
+	 * `position` is inside of the given screen item.
+	 */
+	bool isOnMe(const ScreenItem &screenItem, const Plane &plane, const Common::Point &position, const bool checkPixel) const;
+
+public:
+	reg_t kernelIsOnMe(const reg_t object, const Common::Point &position, const bool checkPixel) const;
 
 #pragma mark -
 #pragma mark Debugging
@@ -501,6 +521,8 @@ public:
 	void printVisiblePlaneList(Console *con) const;
 	void printPlaneListInternal(Console *con, const PlaneList &planeList) const;
 	void printPlaneItemList(Console *con, const reg_t planeObject) const;
+	void printVisiblePlaneItemList(Console *con, const reg_t planeObject) const;
+	void printPlaneItemListInternal(Console *con, const ScreenItemList &screenItemList) const;
 };
 
 } // End of namespace Sci

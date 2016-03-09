@@ -71,6 +71,8 @@ class GfxPaint16;
 class GfxPaint32;
 class GfxPalette;
 class GfxPalette32;
+class GfxRemap;
+class GfxRemap32;
 class GfxPorts;
 class GfxScreen;
 class GfxText16;
@@ -128,6 +130,7 @@ enum SciGameId {
 	GID_FAIRYTALES,
 	GID_FREDDYPHARKAS,
 	GID_FUNSEEKER,
+	GID_GK1DEMO,	// We have a separate ID for GK1 demo, because it's actually a completely different game (SCI1.1 vs SCI2/SCI2.1)
 	GID_GK1,
 	GID_GK2,
 	GID_HOYLE1,
@@ -165,12 +168,14 @@ enum SciGameId {
 	GID_PQ2,
 	GID_PQ3,
 	GID_PQ4,
+	GID_PQ4DEMO,	// We have a separate ID for PQ4 demo, because it's actually a completely different game (SCI1.1 vs SCI2/SCI2.1)
 	GID_PQSWAT,
 	GID_QFG1,
 	GID_QFG1VGA,
 	GID_QFG2,
 	GID_QFG3,
 	GID_QFG4,
+	GID_QFG4DEMO,	// We have a separate ID for QFG4 demo, because it's actually a completely different game (SCI1.1 vs SCI2/SCI2.1)
 	GID_RAMA,
 	GID_SHIVERS,
 	//GID_SHIVERS2,	// Not SCI
@@ -349,6 +354,8 @@ public:
 	GfxMenu *_gfxMenu; // Menu for 16-bit gfx
 	GfxPalette *_gfxPalette16;
 	GfxPalette32 *_gfxPalette32; // Palette for 32-bit gfx
+	GfxRemap *_gfxRemap16;	// Remapping for the QFG4 demo
+	GfxRemap32 *_gfxRemap32; // Remapping for 32-bit gfx
 	GfxPaint *_gfxPaint;
 	GfxPaint16 *_gfxPaint16; // Painting in 16-bit gfx
 	GfxPaint32 *_gfxPaint32; // Painting in 32-bit gfx

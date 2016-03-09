@@ -83,7 +83,7 @@ _mirrorX(false) {
 	}
 }
 
-ScreenItem::ScreenItem(const reg_t plane, const CelInfo32 &celInfo, const Common::Rect &rect, const ScaleInfo &scaleInfo) :
+ScreenItem::ScreenItem(const reg_t plane, const CelInfo32 &celInfo, const Common::Point &position, const ScaleInfo &scaleInfo) :
 _plane(plane),
 _scale(scaleInfo),
 _useInsetRect(false),
@@ -91,7 +91,7 @@ _z(0),
 _celInfo(celInfo),
 _celObj(nullptr),
 _fixPriority(false),
-_position(rect.left, rect.top),
+_position(position),
 _object(make_reg(0, _nextObjectId++)),
 _pictureId(-1),
 _created(g_sci->_gfxFrameout->getScreenCount()),
@@ -124,6 +124,10 @@ void ScreenItem::operator=(const ScreenItem &other) {
 	}
 	_scale = other._scale;
 	_scaledPosition = other._scaledPosition;
+}
+
+ScreenItem::~ScreenItem() {
+	delete _celObj;
 }
 
 void ScreenItem::init() {
@@ -395,7 +399,7 @@ void ScreenItem::calcRects(const Plane &plane) {
 	}
 }
 
-CelObj &ScreenItem::getCelObj() {
+CelObj &ScreenItem::getCelObj() const {
 	if (_celObj == nullptr) {
 		switch (_celInfo.type) {
 			case kCelTypeView:
@@ -417,7 +421,7 @@ CelObj &ScreenItem::getCelObj() {
 }
 
 void ScreenItem::printDebugInfo(Console *con) const {
-	con->debugPrintf("%x:%x (%s), prio %d, x %d, y %d, z: %d, scaledX: %d, scaledY: %d flags: %d\n",
+	con->debugPrintf("%04x:%04x (%s), prio %d, x %d, y %d, z: %d, scaledX: %d, scaledY: %d flags: %d\n",
 		_object.getSegment(), _object.getOffset(),
 		g_sci->getEngineState()->_segMan->getObjectName(_object),
 		_priority,
@@ -523,4 +527,4 @@ void ScreenItemList::unsort() {
 	}
 }
 
-}
+} // End of namespace Sci

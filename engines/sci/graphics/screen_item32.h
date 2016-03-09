@@ -125,7 +125,7 @@ public:
 	 * item. This member is populated by calling
 	 * `getCelObj`.
 	 */
-	CelObj *_celObj;
+	mutable CelObj *_celObj;
 
 	/**
 	 * If set, the priority for this screen item is fixed
@@ -213,8 +213,9 @@ public:
 	ScreenItem(const reg_t screenItem);
 	ScreenItem(const reg_t plane, const CelInfo32 &celInfo);
 	ScreenItem(const reg_t plane, const CelInfo32 &celInfo, const Common::Rect &rect);
-	ScreenItem(const reg_t plane, const CelInfo32 &celInfo, const Common::Rect &rect, const ScaleInfo &scaleInfo);
+	ScreenItem(const reg_t plane, const CelInfo32 &celInfo, const Common::Point &position, const ScaleInfo &scaleInfo);
 	ScreenItem(const ScreenItem &other);
+	~ScreenItem();
 	void operator=(const ScreenItem &);
 
 	inline bool operator<(const ScreenItem &other) const {
@@ -228,9 +229,7 @@ public:
 			}
 
 			if (_position.y + _z == other._position.y + other._z) {
-				return false;
-				// TODO: Failure in SQ6 room 220
-//				return _object < other._object;
+				return _object < other._object;
 			}
 		}
 
@@ -251,7 +250,7 @@ public:
 	 * screen item. If a cel object does not already exist,
 	 * one will be created and assigned.
 	 */
-	CelObj &getCelObj();
+	CelObj &getCelObj() const;
 
 	void printDebugInfo(Console *con) const;
 
@@ -277,6 +276,6 @@ public:
 	void sort();
 	void unsort();
 };
-}
+} // End of namespace Sci
 
 #endif

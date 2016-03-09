@@ -152,12 +152,12 @@ reg_t kObjectIntersect(EngineState *s, int argc, reg_t *argv) {
 
 // Tests if the coordinate is on the passed object
 reg_t kIsOnMe(EngineState *s, int argc, reg_t *argv) {
-	uint16 x = argv[0].toUint16();
-	uint16 y = argv[1].toUint16();
-	reg_t targetObject = argv[2];
-	uint16 checkPixels = argv[3].getOffset();
+	int16 x = argv[0].toSint16();
+	int16 y = argv[1].toSint16();
+	reg_t object = argv[2];
+	bool checkPixel = argv[3].toSint16();
 
-	return make_reg(0, g_sci->_gfxFrameout->kernelIsOnMe(x, y, checkPixels, targetObject));
+	return g_sci->_gfxFrameout->kernelIsOnMe(object, Common::Point(x, y), checkPixel);
 }
 
 reg_t kCreateTextBitmap(EngineState *s, int argc, reg_t *argv) {
@@ -197,16 +197,14 @@ reg_t kCreateTextBitmap(EngineState *s, int argc, reg_t *argv) {
 
 	if (subop == 0) {
 		TextAlign alignment = (TextAlign)readSelectorValue(segMan, object, SELECTOR(mode));
-		reg_t out;
-		return g_sci->_gfxText32->createFontBitmap(width, height, rect, text, foreColor, backColor, skipColor, fontId, alignment, borderColor, dimmed, true, &out);
+		return g_sci->_gfxText32->createFontBitmap(width, height, rect, text, foreColor, backColor, skipColor, fontId, alignment, borderColor, dimmed, true);
 	} else {
 		CelInfo32 celInfo;
 		celInfo.type = kCelTypeView;
 		celInfo.resourceId = readSelectorValue(segMan, object, SELECTOR(view));
 		celInfo.loopNo = readSelectorValue(segMan, object, SELECTOR(loop));
 		celInfo.celNo = readSelectorValue(segMan, object, SELECTOR(cel));
-		reg_t out;
-		return g_sci->_gfxText32->createFontBitmap(celInfo, rect, text, foreColor, backColor, fontId, skipColor, borderColor, dimmed, &out);
+		return g_sci->_gfxText32->createFontBitmap(celInfo, rect, text, foreColor, backColor, fontId, skipColor, borderColor, dimmed);
 	}
 }
 
@@ -506,7 +504,6 @@ reg_t kBitmap(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kBitmapCreate(EngineState *s, int argc, reg_t *argv) {
-	uint32 bitmapHeaderSize = CelObjMem::getBitmapHeaderSize();
 	int16 width = argv[0].toSint16();
 	int16 height = argv[1].toSint16();
 	int16 skipColor = argv[2].toSint16();
@@ -515,11 +512,9 @@ reg_t kBitmapCreate(EngineState *s, int argc, reg_t *argv) {
 	int16 scaledHeight = argc > 5 ? argv[5].toSint16() : g_sci->_gfxText32->_scaledHeight;
 	bool useRemap = argc > 6 ? argv[6].toSint16() : false;
 
-	reg_t bitmapMemId = s->_segMan->allocateHunkEntry("Bitmap()", width * height + bitmapHeaderSize);
-	byte *bitmap = s->_segMan->getHunkPointer(bitmapMemId);
-	memset(bitmap + bitmapHeaderSize, backColor, width * height);
-	CelObjMem::buildBitmapHeader(bitmap, width, height, skipColor, 0, 0, scaledWidth, scaledHeight, 0, useRemap);
-	return bitmapMemId;
+	BitmapResource bitmap(s->_segMan, width, height, skipColor, 0, 0, scaledWidth, scaledHeight, 0, useRemap);
+	memset(bitmap.getPixels(), backColor, width * height);
+	return bitmap.getObject();
 }
 
 reg_t kBitmapDestroy(EngineState *s, int argc, reg_t *argv) {
@@ -579,7 +574,37 @@ reg_t kBitmapDrawText(EngineState *s, int argc, reg_t *argv) {
 	// called e.g. from TextButton::createBitmap() in Torin's Passage, script 64894
 
 	// bitmap, text, textLeft, textTop, textRight, textBottom, foreColor, backColor, skipColor, fontNo, alignment, borderColor, dimmed
-	return kStubNull(s, argc + 1, argv - 1);
+	BitmapResource bitmap(argv[0]);
+	Common::String text = s->_segMan->getString(argv[1]);
+	Common::Rect textRect(
+		argv[2].toSint16(),
+		argv[3].toSint16(),
+		argv[4].toSint16() + 1,
+		argv[5].toSint16() + 1
+	);
+	int16 foreColor = argv[6].toSint16();
+	int16 backColor = argv[7].toSint16();
+	int16 skipColor = argv[8].toSint16();
+	GuiResourceId fontId = (GuiResourceId)argv[9].toUint16();
+	TextAlign alignment = (TextAlign)argv[10].toSint16();
+	int16 borderColor = argv[11].toSint16();
+	bool dimmed = argv[12].toUint16();
+
+	// NOTE: Technically the engine checks these things:
+	// textRect.bottom > 0
+	// textRect.right > 0
+	// textRect.left < bitmap.width
+	// textRect.top < bitmap.height
+	// Then clips. But this seems stupid.
+	textRect.clip(Common::Rect(bitmap.getWidth(), bitmap.getHeight()));
+
+	reg_t textBitmapObject = g_sci->_gfxText32->createFontBitmap(textRect.width(), textRect.height(), Common::Rect(textRect.width(), textRect.height()), text, foreColor, backColor, skipColor, fontId, alignment, borderColor, dimmed, false);
+	Buffer bitmapBuffer(bitmap.getWidth(), bitmap.getHeight(), bitmap.getPixels());
+	CelObjMem textCel(textBitmapObject);
+	textCel.draw(bitmapBuffer, textRect, Common::Point(textRect.left, textRect.top), false);
+	s->_segMan->freeHunkEntry(textBitmapObject);
+
+	return NULL_REG;
 }
 
 reg_t kBitmapDrawColor(EngineState *s, int argc, reg_t *argv) {
@@ -670,14 +695,9 @@ reg_t kBitmapCreateFromUnknown(EngineState *s, int argc, reg_t *argv) {
 // but it handles events on its own, using an internal loop, instead of using SCI
 // scripts for event management like kEditControl does. Called by script 64914,
 // DEdit::hilite().
+
 reg_t kEditText(EngineState *s, int argc, reg_t *argv) {
-	reg_t controlObject = argv[0];
-
-	if (!controlObject.isNull()) {
-		g_sci->_gfxControls32->kernelTexteditChange(controlObject);
-	}
-
-	return s->r_acc;
+	return g_sci->_gfxControls32->kernelEditText(argv[0]);
 }
 
 reg_t kAddLine(EngineState *s, int argc, reg_t *argv) {
@@ -894,6 +914,8 @@ reg_t kPalCycle(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kRemapColors32(EngineState *s, int argc, reg_t *argv) {
+	// TODO
+#if 0
 	uint16 operation = argv[0].toUint16();
 
 	switch (operation) {
@@ -904,57 +926,57 @@ reg_t kRemapColors32(EngineState *s, int argc, reg_t *argv) {
 		if (g_sci->getGameId() == GID_QFG4 && s->currentRoomNumber() == 140)
 			return s->r_acc;
 
-		int16 base = (argc >= 2) ? argv[1].toSint16() : 0;
-		if (base > 0)
-			warning("kRemapColors(0) called with base %d", base);
-		g_sci->_gfxPalette32->resetRemapping();
+		int16 color = (argc >= 2) ? argv[1].toSint16() : 0;
+		if (color > 0)
+			warning("kRemapColors(0) called with base %d", color);
+		//g_sci->_gfxPalette32->resetRemapping();
 		}
 		break;
 	case 1:	{ // remap by range
 		uint16 color = argv[1].toUint16();
 		uint16 from = argv[2].toUint16();
 		uint16 to = argv[3].toUint16();
-		uint16 base = argv[4].toUint16();
-		uint16 unk5 = (argc >= 6) ? argv[5].toUint16() : 0;
-		if (unk5 > 0)
-			warning("kRemapColors(1) called with 6 parameters, unknown parameter is %d", unk5);
-		g_sci->_gfxPalette32->setRemappingRange(color, from, to, base);
+		uint16 delta = argv[4].toUint16();
+		uint16 depth = (argc >= 6) ? argv[5].toUint16() : 0;
+		if (depth > 0)
+			warning("kRemapColors(1) called with 6 parameters, depth is %d", depth);
+		//g_sci->_gfxPalette32->setRemappingRange(color, from, to, delta);
 		}
 		break;
 	case 2:	{ // remap by percent
 		uint16 color = argv[1].toUint16();
 		uint16 percent = argv[2].toUint16(); // 0 - 100
-		if (argc >= 4)
-			warning("RemapByPercent called with 4 parameters, unknown parameter is %d", argv[3].toUint16());
-		g_sci->_gfxPalette32->setRemappingPercent(color, percent);
+		uint16 depth = (argc >= 4) ? argv[3].toUint16() : 0;
+		if (depth >= 0)
+			warning("RemapByPercent called with 4 parameters, depth is %d", depth);
+		//g_sci->_gfxPalette32->setRemappingPercent(color, percent);
 		}
 		break;
 	case 3:	{ // remap to gray
 		// Example call: QFG4 room 490 (Baba Yaga's hut) - params are color 253, 75% and 0.
 		// In this room, it's used for the cloud before Baba Yaga appears.
-		int16 color = argv[1].toSint16();
-		int16 percent = argv[2].toSint16(); // 0 - 100
-		if (argc >= 4)
-			warning("RemapToGray called with 4 parameters, unknown parameter is %d", argv[3].toUint16());
-		g_sci->_gfxPalette32->setRemappingPercentGray(color, percent);
+		uint16 color = argv[1].toUint16();
+		uint16 percent = argv[2].toUint16(); // 0 - 100
+		uint16 depth = (argc >= 4) ? argv[3].toUint16() : 0;
+		if (depth >= 0)
+			warning("RemapToGray called with 4 parameters, depth is %d", depth);
+		//g_sci->_gfxPalette32->setRemappingPercentGray(color, percent);
 		}
 		break;
 	case 4:	{ // remap to percent gray
 		// Example call: QFG4 rooms 530/535 (swamp) - params are 253, 100%, 200
-		int16 color = argv[1].toSint16();
-		int16 percent = argv[2].toSint16(); // 0 - 100
-		// argv[3] is unknown (a number, e.g. 200) - start color, perhaps?
+		uint16 color = argv[1].toUint16();
+		uint16 percent = argv[2].toUint16(); // 0 - 100
+		uint16 grayPercent = argv[3].toUint16();
+		uint16 depth = (argc >= 5) ? argv[4].toUint16() : 0;
 		if (argc >= 5)
-			warning("RemapToGrayPercent called with 5 parameters, unknown parameter is %d", argv[4].toUint16());
-		g_sci->_gfxPalette32->setRemappingPercentGray(color, percent);
+			warning("RemapToGrayPercent called with 5 parameters, depth is %d", depth);
+		//g_sci->_gfxPalette32->setRemappingPercentGray(color, percent);
 		}
 		break;
 	case 5:	{ // don't map to range
-		//int16 mapping = argv[1].toSint16();
-		uint16 intensity = argv[2].toUint16();
-		// HACK for PQ4
-		if (g_sci->getGameId() == GID_PQ4)
-			g_sci->_gfxPalette32->kernelSetIntensity(0, 255, intensity, true);
+		//uint16 start = argv[1].toSint16();
+		//uint16 count = argv[2].toUint16();
 
 		kStub(s, argc, argv);
 		}
@@ -962,6 +984,7 @@ reg_t kRemapColors32(EngineState *s, int argc, reg_t *argv) {
 	default:
 		break;
 	}
+#endif
 
 	return s->r_acc;
 }

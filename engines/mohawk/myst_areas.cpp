@@ -240,11 +240,26 @@ VideoHandle MystAreaVideo::playMovie() {
 	} else {
 		// Resume the video
 		handle->pause(false);
+		handle->start();
 	}
 
 	if (_playBlocking) {
 		_vm->_video->waitUntilMovieEnds(handle);
 		return VideoHandle();
+	}
+
+	return handle;
+}
+
+VideoHandle MystAreaVideo::getMovieHandle() {
+	// If the video is already in the manager, just return the handle
+	VideoHandle handle = _vm->_video->findVideoHandle(_videoFile);
+	if (!handle) {
+		// If the video has not been loaded yet, do it but don't start playing it
+		handle = _vm->_video->playMovie(_videoFile);
+		if (!handle)
+			error("Failed to open '%s'", _videoFile.c_str());
+		handle->stop();
 	}
 
 	return handle;
